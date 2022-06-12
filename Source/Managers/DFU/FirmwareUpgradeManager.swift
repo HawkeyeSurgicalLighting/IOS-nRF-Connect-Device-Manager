@@ -96,7 +96,7 @@ public class FirmwareUpgradeManager : FirmwareUpgradeController, ConnectionObser
         let numberOfBytes = images.reduce(0, { $0 + $1.1.count })
         log(msg: "Upgrading with \(images.count) images in mode '\(mode)' (\(numberOfBytes) bytes)...",
             atLevel: .application)
-        if #available(iOS 10.0, *) {
+        if #available(iOS 10.0, watchOS 3.0, *) {
             dispatchPrecondition(condition: .onQueue(.main))
         } else {
             assert(Thread.isMainThread)
