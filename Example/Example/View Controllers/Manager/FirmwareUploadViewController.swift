@@ -11,6 +11,9 @@ import iOSMcuManagerLibrary
 
 class FirmwareUploadViewController: UIViewController, McuMgrViewController {
     
+    @IBOutlet weak var actionBuffers: UIButton!
+    @IBOutlet weak var actionAlignment: UIButton!
+    @IBOutlet weak var actionChunks: UIButton!
     @IBOutlet weak var actionSelect: UIButton!
     @IBOutlet weak var actionStart: UIButton!
     @IBOutlet weak var actionPause: UIButton!
@@ -22,6 +25,7 @@ class FirmwareUploadViewController: UIViewController, McuMgrViewController {
     @IBOutlet weak var fileName: UILabel!
     @IBOutlet weak var dfuNumberOfBuffers: UILabel!
     @IBOutlet weak var dfuByteAlignment: UILabel!
+    @IBOutlet weak var dfuChunkSize: UILabel!
     @IBOutlet weak var dfuSpeed: UILabel!
     @IBOutlet weak var progress: UIProgressView!
     
@@ -61,6 +65,22 @@ class FirmwareUploadViewController: UIViewController, McuMgrViewController {
         present(alertController, addingCancelAction: true)
     }
     
+    @IBAction func setChunkSize(_ sender: Any) {
+        let alertController = UIAlertController(title: "Set Chunk Size", message: "0 means Default (MTU Size)", preferredStyle: .alert)
+        alertController.addTextField { (textField) in
+            textField.placeholder = "\(self.uploadConfiguration.reassemblyBufferSize)"
+            textField.keyboardType = .decimalPad
+        }
+        alertController.addAction(UIAlertAction(title: "Submit", style: .default, handler: { [weak alertController] (_) in
+            guard let textField = alertController?.textFields?.first,
+                  let stringValue = textField.text else { return }
+            self.uploadConfiguration.reassemblyBufferSize = UInt64(stringValue) ?? 0
+            self.dfuChunkSize.text = "\(self.uploadConfiguration.reassemblyBufferSize)"
+        }))
+
+        present(alertController, addingCancelAction: true)
+    }
+    
     private func present(_ alertViewController: UIAlertController, addingCancelAction addCancelAction: Bool = false) {
         if addCancelAction {
             alertViewController.addAction(UIAlertAction(title: "Cancel", style: .cancel))
@@ -75,29 +95,26 @@ class FirmwareUploadViewController: UIViewController, McuMgrViewController {
         present(alertViewController, animated: true)
     }
     
+    static let uploadImages = [0, 1, 2, 3]
     @IBAction func start(_ sender: UIButton) {
         guard let package = package else { return }
         uploadImageSize = nil
         
-        guard package.images.count > 1 else {
-            actionStart.isHidden = true
-            actionPause.isHidden = false
-            actionCancel.isHidden = false
-            actionSelect.isEnabled = false
-            imageSlot = 0
-            status.textColor = .primary
-            status.text = "UPLOADING..."
-            
-            _ = imageManager.upload(images: [ImageManager.Image(image: 0, data: package.images[0].data)],
-                                    using: uploadConfiguration, delegate: self)
-            return
+        let images: [ImageManager.Image]
+        if package.images.count > 1 {
+            images = package.images.map { ImageManager.Image(image: $0.image, data: $0.data) }
+        } else {
+            images = Self.uploadImages.map { ImageManager.Image(image: $0, data: package.images[0].data) }
         }
         
         let alertController = UIAlertController(title: "Select Core Slot", message: nil, preferredStyle: .actionSheet)
         let configuration = uploadConfiguration
-        for image in package.images {
+        for image in images {
             alertController.addAction(UIAlertAction(title: McuMgrPackage.imageName(at: image.image), style: .default) { [weak self]
                 action in
+                self?.actionBuffers.isEnabled = false
+                self?.actionAlignment.isEnabled = false
+                self?.actionChunks.isEnabled = false
                 self?.actionStart.isHidden = true
                 self?.actionPause.isHidden = false
                 self?.actionCancel.isHidden = false
@@ -156,7 +173,7 @@ class FirmwareUploadViewController: UIViewController, McuMgrViewController {
         }
     }
     private var initialBytes: Int = 0
-    private var uploadConfiguration = FirmwareUpgradeConfiguration(pipelineDepth: 1, byteAlignment: .disabled)
+    private var uploadConfiguration = FirmwareUpgradeConfiguration(estimatedSwapTime: 10.0, pipelineDepth: 1, byteAlignment: .disabled)
     private var uploadImageSize: Int!
     private var uploadTimestamp: Date!
 }
@@ -178,7 +195,7 @@ extension FirmwareUploadViewController: ImageUploadDelegate {
         }
         
         // Date.timeIntervalSince1970 returns seconds
-        let msSinceUploadBegan = (timestamp.timeIntervalSince1970 - uploadTimestamp.timeIntervalSince1970) * 1000
+        let msSinceUploadBegan = max((timestamp.timeIntervalSince1970 - uploadTimestamp.timeIntervalSince1970) * 1000, 1)
         
         guard bytesSent < imageSize else {
             let averageSpeedInKiloBytesPerSecond = Double(imageSize - initialBytes) / msSinceUploadBegan
@@ -194,6 +211,9 @@ extension FirmwareUploadViewController: ImageUploadDelegate {
     
     func uploadDidFail(with error: Error) {
         progress.setProgress(0, animated: true)
+        actionBuffers.isEnabled = true
+        actionAlignment.isEnabled = true
+        actionChunks.isEnabled = true
         actionPause.isHidden = true
         actionResume.isHidden = true
         actionCancel.isHidden = true
@@ -205,6 +225,9 @@ extension FirmwareUploadViewController: ImageUploadDelegate {
     
     func uploadDidCancel() {
         progress.setProgress(0, animated: true)
+        actionBuffers.isEnabled = true
+        actionAlignment.isEnabled = true
+        actionChunks.isEnabled = true
         actionPause.isHidden = true
         actionResume.isHidden = true
         actionCancel.isHidden = true
@@ -216,6 +239,9 @@ extension FirmwareUploadViewController: ImageUploadDelegate {
     
     func uploadDidFinish() {
         progress.setProgress(0, animated: false)
+        actionBuffers.isEnabled = true
+        actionAlignment.isEnabled = true
+        actionChunks.isEnabled = true
         actionPause.isHidden = true
         actionResume.isHidden = true
         actionCancel.isHidden = true
@@ -249,6 +275,7 @@ extension FirmwareUploadViewController: UIDocumentMenuDelegate, UIDocumentPicker
             
             dfuNumberOfBuffers.text = uploadConfiguration.pipelineDepth == 1 ? "Disabled" : "\(uploadConfiguration.pipelineDepth + 1)"
             dfuByteAlignment.text = uploadConfiguration.byteAlignment.description
+            dfuChunkSize.text = "\(uploadConfiguration.reassemblyBufferSize)"
             
             status.textColor = .primary
             status.text = "READY"
